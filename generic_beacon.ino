@@ -4,7 +4,7 @@
 // This library is used for asyncronous gold code flashing, and must be downloaded
 #include "TimerOne.h"
 
-const int VERSION = 3;
+const int VERSION = 4;
 
 // Declare what pins are what
 const uint8_t bonusOrNormalPin = 2;
@@ -50,15 +50,17 @@ uint32_t normalGC; // Gold code to flash after it's been claimed at least once
 
 // Declare global variables about the state of the beacon
 int8_t owner; // 0 is unclaimed, -1 is green, 1 is white
-uint32_t gcToFlash;
 unsigned long lastClaimTime;
 
-void setup() {
+// Variable which keeps track if we are in debug mode.
+bool debug = false;
 
+void setup() {
     Serial.begin(115200);
     Serial.println("Good morning");
     Serial.print("I was compiled at "__TIME__" on "__DATE__". Version # is ");
     Serial.println(VERSION);
+    Serial.println("Enter anything into the terminal to go into debug mode");
 
     // Set the random seed
     randomSeed(  analogRead(A0)
@@ -110,12 +112,6 @@ void setup() {
 
     // Figure out what team we should start on via lookup table
     owner = startTeams[seed];
-    // If we start unclaimed, flash the +10 code
-    if (owner == 0) {
-        gcToFlash = unclaimedGC;
-    } else {
-        gcToFlash = normalGC;
-    }
 
     if (testBoard) {
         Serial.println("Reading input pins. Send any key to stop");
@@ -139,7 +135,7 @@ void setup() {
             delay(500);
         }
         Serial.println("Done with tests");
-        while(1);
+        while(1) ;
     }
 
 
@@ -149,6 +145,11 @@ void setup() {
 }
 
 void loop() {
+    // See if we should go into debug mode
+    if (Serial.read() != -1) {
+       debug = true;
+       Serial.println("Debug mode enabled");
+    }
     // Set the appropriate LED
     digitalWrite(greenLEDPin, owner < 0);
     digitalWrite(whiteLEDPin, owner > 0);
@@ -171,7 +172,6 @@ void loop() {
             lastClaimTime = curTime;
             // If we were previously unassigned, go to a random team
             if (owner == 0) {
-                gcToFlash = normalGC;
                 owner = random(2)*2-1;
             }
             // Otherwise, switch teams
@@ -201,7 +201,7 @@ void flash_GC_async() {
     //if (curTime - flashPos.lastTime < 250) return false;
     //flashPos.lastTime = curTime;
     static uint8_t pos = 0;
-
+    uint32_t gcToFlash = owner == 0? unclaimedGC : normalGC;
     digitalWrite(flashLEDPin, (owner<0) ^ !!(gcToFlash & (1UL << (30 - pos))));
 
     ++pos;
@@ -213,6 +213,7 @@ void flash_GC_async() {
 void readGC_async() {
     static unsigned long lastReadTime = 0;
     static unsigned int vals[31];
+    static unsigned long times[31];
     static int pos = 0;
 
     unsigned long curTime = micros();
@@ -220,9 +221,11 @@ void readGC_async() {
     if (curTime - lastReadTime < 250) {
         return;
     }
-    lastReadTime += 250;
+    if (curTime - lastReadTime > 1000) lastReadTime = curTime;
+    else lastReadTime += 250;
 
     vals[pos] = analogRead(flashRecvPin);
+    times[pos] = curTime;
     pos++;
     
     if (pos >= 31) {
@@ -246,14 +249,42 @@ void readGC_async() {
         // Check the gold code against the "normal" gold code and change the
         //  owner if there's a strong correlation
         int same = sameGC(gc, normalGC);
-        Serial.println(same);
+        if (debug){
+          unsigned int maxVal = 0, minVal = 1023;
+          unsigned int closeToAvg = 0;
+          for (int i = 0; i<31; i++) {
+            if (vals[i] < minVal) minVal = vals[i];
+            if (vals[i] > maxVal) maxVal = vals[i];
+          }
+          for (int i = 0; i<31; i++) 
+            if (abs(vals[i]-avg) < (maxVal-minVal)/10) closeToAvg++;
+            
+          Serial.println("gold code recieved: ");
+          Serial.println(gc,BIN);
+          Serial.println("Correlation");
+          Serial.println(same); 
+          Serial.print("Time per sample ");
+          Serial.println((times[30]-times[0])/30);
+          Serial.print("Min, Max, Avg, close to avg: ");
+          Serial.print(minVal); Serial.print(" ");
+          Serial.print(maxVal); Serial.print(" ");
+          Serial.print(avg); Serial.print(" ");
+          Serial.println(closeToAvg); 
+          Serial.print("raw data: ");
+          for(int i = 0; i < 31; i++){
+            Serial.print(vals[i]);  Serial.print(" ");
+ //           Serial.println(times[i]);
+          }
+          Serial.println();
+          Serial.println();
+          
+            
+        }
         if (same > 0 && owner != 1) {
             owner = 1;
-            gcToFlash = normalGC; // The beacon has been claimed at least once
             lastClaimTime = millis();
         } else if (same < 0 && owner != -1) {
             owner = -1;
-            gcToFlash = normalGC;
             lastClaimTime = millis();
         }
     }
@@ -341,9 +372,14 @@ int sameGC(uint32_t gc1, uint32_t gc2) {
     for (int i=0; i<31; i++) {
         gc2 = ((gc2 & 1) << 30) | gc2 >> 1;
         score = dotProduct(gc1, gc2);
-        if (abs(score) >= sameGCThresh) return score;
+        if (abs(score) >= sameGCThresh) {
+          Serial.println("gold code ACTUAL  : ");
+          Serial.println(gc2,BIN);
+          return score;
+        }
     }
     // If none of them have a good enough match, return 0
     return 0;
 }
+
 
