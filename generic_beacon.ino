@@ -134,7 +134,7 @@ void setup() {
             digitalWrite(outPins[i], LOW);
             delay(500);
         }
-        Serial.println("Done with tests");
+        Serial.println("Done with tests. Halting.");
         while(1) ;
     }
 
@@ -373,9 +373,11 @@ int sameGC(uint32_t gc1, uint32_t gc2) {
         gc2 = ((gc2 & 1) << 30) | gc2 >> 1;
         score = dotProduct(gc1, gc2);
         if (abs(score) >= sameGCThresh) {
-          Serial.println("gold code ACTUAL  : ");
-          Serial.println(gc2,BIN);
-          return score;
+            if (debug) {
+                Serial.println("gold code ACTUAL  : ");
+                Serial.println(gc2,BIN);
+            }
+            return score;
         }
     }
     // If none of them have a good enough match, return 0
