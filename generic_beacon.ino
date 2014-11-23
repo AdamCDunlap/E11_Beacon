@@ -4,7 +4,7 @@
 // This library is used for asyncronous gold code flashing, and must be downloaded
 #include "TimerOne.h"
 
-const int VERSION = 2;
+const int VERSION = 3;
 
 // Declare what pins are what
 const uint8_t bonusOrNormalPin = 2;
@@ -212,7 +212,7 @@ void flash_GC_async() {
 
 void readGC_async() {
     static unsigned long lastReadTime = 0;
-    static unsigned int vals[32];
+    static unsigned int vals[31];
     static int pos = 0;
 
     unsigned long curTime = micros();
@@ -220,12 +220,12 @@ void readGC_async() {
     if (curTime - lastReadTime < 250) {
         return;
     }
-    lastReadTime = curTime;
+    lastReadTime += 250;
 
     vals[pos] = analogRead(flashRecvPin);
     pos++;
     
-    if (pos >= 32) {
+    if (pos >= 31) {
         pos = 0;
         
         unsigned int sum = 0;
@@ -246,6 +246,7 @@ void readGC_async() {
         // Check the gold code against the "normal" gold code and change the
         //  owner if there's a strong correlation
         int same = sameGC(gc, normalGC);
+        Serial.println(same);
         if (same > 0 && owner != 1) {
             owner = 1;
             gcToFlash = normalGC; // The beacon has been claimed at least once
